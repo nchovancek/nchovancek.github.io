@@ -1,0 +1,172 @@
+---
+title: "Bicycle Sharing Service Case Study"
+author: "Nicholas Chovancek"
+date: "2022-12-09"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+
+#step 1, collect and load data
+dec21<-read_csv("202112-divvy-tripdata.csv")
+jan22<-read_csv("202201-divvy-tripdata.csv")
+feb22<-read_csv("202202-divvy-tripdata.csv")
+mar22<-read_csv("202203-divvy-tripdata.csv")
+apr22<-read_csv("202204-divvy-tripdata.csv")
+may22<-read_csv("202205-divvy-tripdata.csv")
+jun22<-read_csv("202206-divvy-tripdata.csv")
+jul22<-read_csv("202207-divvy-tripdata.csv")
+aug22<-read_csv("202208-divvy-tripdata.csv")
+sep22<-read_csv("202209-divvy-tripdata.csv")
+oct22<-read_csv("202210-divvy-tripdata.csv")
+nov22<-read_csv("202211-divvy-tripdata.csv")
+
+```
+
+## Overview
+Cyclistic is a fictional bicycle-sharing service in a major metropolitan city
+in the United States. They operate over 5,800 bicycles that are interchanged at 
+more than 600 docking stations. Customers can check a bicycle from one docking
+station and return it to any other station at any time. Cyclistic features several
+types of bicycles, including electric bicycles. Customers can either pay for their
+trips on a per-ride basis (denoted as casual users) or subscribe to an annual membership
+(denoted as members). The financial analysis team has determined that annual members are
+more profitable than casual users, which prompted the marketing manager to set a goal of
+converting as many casual users to annual members as possible. 
+
+## Business Task
+Based on the scenario, the business task is to analyze ridership data from Cyclistic
+to understand the differences in riding behavior between casual riders and annual members.
+This information will inform a marketing strategy aimed at converting casual users to
+members.
+
+## Data Sources
+Data for this case study was provided by Lyft Bikes and Scooters' Divvy
+Bike sharing program with the following [license](https://ride.divvybikes.com/data-license-agreement).
+ The associated data can be found at this [link](https://divvy-tripdata.s3.amazonaws.com/index.html).
+ For the project, the most recent 12 months of ridership data were used, which at the time of writing
+  was December 2021-November 2022.
+  
+## Data Cleaning and Manipulation
+Each month of the time period in question was represented in a standalone .csv file. After all 12 files were read into R Studio Desktop as data frames and checked for consistency. Once all files were confirmed to be consistent, bind_rows() was used to compile 12 data frames into one.
+
+```{r Bind Rows, include=FALSE}
+all_trips<- bind_rows(dec21, jan22, feb22, mar22, apr22, may22, jun22, jul22, 
+                      aug22, sep22, oct22, nov22)
+str(all_trips)
+```
+Previous versions of these data sets had labeled annual members as "subscribers" and casual users as "Customers". The following code was run to ensure that the *member_casual* field was consistent. 
+
+```{r Clean member_casual}
+
+all_trips<- all_trips %>% 
+  mutate(member_casual=recode(member_casual,
+                              "Subscriber"="member",
+                              "Customer"="casual"))
+table(all_trips$member_casual)
+
+```
+
+New columns were generated from the *started_at* field to facilitate more efficient sorting and grouping on date objects. The new columns are *date*, *month*, *day*, *year*, and *day_of_week*.
+
+```{r Create New Date Columns}
+all_trips$date<-as.Date(all_trips$started_at)
+all_trips$month<- format(as.Date(all_trips$date), "%m")
+all_trips$day<- format(as.Date(all_trips$date), "%d")
+all_trips$year<- format(as.Date(all_trips$date), "%Y")
+all_trips$day_of_week<- format(as.Date(all_trips$date), "%A")
+```
+
+Create a column *ride_length* based on a difference in time between the end and beginning of a ride. *ride_length* is then converted to numeric type to allow for calculations.
+
+```{r Create ride_length}
+all_trips$ride_length<-difftime(all_trips$ended_at, all_trips$started_at)
+
+str(all_trips)
+all_trips$ride_length<-as.numeric(as.character(all_trips$ride_length))
+is.numeric(all_trips$ride_length)
+```
+
+The scenario noted that entries exist in the data set where bicycles were removed for service or have negative ride duration. A new data frame was created without these entries and NA's were dropped.
+```{r Create all_trips_v2}
+all_trips_v2<-all_trips[!(all_trips$start_station_name=="HQ QR" | all_trips$ride_length<0),]
+all_trips_v2<-drop_na(all_trips_v2)
+```
+
+## Analysis
+The code below presents summary statistics of the cleaned data frame. The five-number summary of ride length shows time in minutes, all other calculations are in seconds. 
+```{r Summary Statistics}
+summary((all_trips_v2$ride_length)/60)
+
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN=mean)
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN=median)
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN=max)
+aggregate(all_trips_v2$ride_length ~ all_trips_v2$member_casual, FUN=min)
+
+```
+To see the average ride length for both casual riders and members per day of the week, the code below was entered. Care was taken to order the days of the week for readability. 
+
+```{r Weekday Ride Length}
+all_trips_v2$day_of_week<- ordered(all_trips_v2$day_of_week, levels=c("Sunday",
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+all_trips_v2 %>% aggregate(ride_length/60 ~ member_casual + day_of_week, FUN=mean)
+```
+
+To analyze ridership data by type and weekday, riders were grouped by type and day of the week. Then, their number of rides and mean ride length was calculated.
+
+```{r Day of Week Rides v. Rider Type, message=FALSE, warning=FALSE}
+all_trips_v2 %>% 
+  mutate(weekday=wday(started_at, label=TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarize(number_of_rides=n(), average_duration=mean(ride_length)) %>% 
+  arrange(member_casual, weekday)
+```
+
+## Key Findings and Visualizations
+The scenario explained that a significant percentage of users are members who utilize Cyclistic to commute to work. The bar chart below supports that claim by showing that the number of members using Cyclistic during the work week is high compared to the number of casual users. Conversely, members take fewer rides on weekends while the number of casual riders increased. With more detailed riding data and customer surveys, the number of members commuting to work could be approximated to get a more accurate look at the purpose behind these rides. To increase casual to member conversions, one strategy could be to highlight customer use cases and demonstrate how many people use the service for work, showing that it is viable and convincing others to do the same.
+```{r Visual: Riders by Type and Day of Week, message=FALSE, warning=FALSE}
+all_trips_v2 %>% 
+  mutate(weekday=wday(started_at, label=TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarize(number_of_rides=n(), average_duration=mean(ride_length)) %>% 
+  arrange(member_casual, weekday) %>% 
+  ggplot(aes(x=weekday, y=number_of_rides, fill=member_casual)) +
+  geom_col(position='dodge')+ labs(title="Number of Riders by Type and Day of Week", x="Day of Week", y="Number of Rides")
+```
+
+The next visualization further supports the claim that many members using Cyclistic during the work week are commuting. During the work week, member ride duration is almost totally consistent with minimal variation. Members also have slightly longer average trip duration on weekends. Casual users, however, take significantly longer trips overall, and on weekends the mean ride duration is almost twice as long as member ride duration. This suggests that many casual users are using the service for leisure or exercise. Assuming Cyclistic charges casual riders based on how long they have the bicycle, another marketing strategy could be to advertise a break-even point for casual riders where if they became an annual member, they would actually save money after using the service for x minutes. 
+
+```{r Visual: Mean Ride Duration by Type, message=FALSE, warning=FALSE}
+all_trips_v2 %>% 
+  mutate(weekday=wday(started_at, label=TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarize(number_of_rides=n(), average_duration=mean(ride_length)) %>% 
+  arrange(member_casual, weekday) %>% 
+  ggplot(aes(x=weekday, y=average_duration, fill=member_casual))+
+  geom_col(position='dodge')+labs(title="Mean Ride Duration by Type, Day of Week")
+```
+
+The final visualization shows the distribution of ride length in minutes between casual riders and annual members, as well as the type of rideable used. Because the data set has a small number of extreme outliers for ride length (rideables that were checked out for as many as two days), this histogram was generated for rides that are less than about 50min. This bracket contains the vast majority of rides and allows for greater detail to show in the visualization. While both histograms are skewed right, member ride length is much more concentrated in the 5-15min segment, whereas casual users are somewhat more distributed. Even so, over 75% of all total rides are less than 20min in length. Additionally, the proportion of electric bikes to classic bikes appears consistent between the two groups, though without data on how many of each bike type are available at docks, it is difficult to draw conclusions from that insight. Since the vast majority of bikes are within the 20min time bracket, Cyclistic could advertise their current map of docking stations to highlight all the locations the average rider would be able to go and still be able to drop off a bike. 
+
+```{r Ride Length Histogram, message=FALSE, warning=FALSE}
+hist_data<-all_trips_v2[!(all_trips_v2$ride_length>3000),]
+hist_data<- drop_na(hist_data)
+ggplot(data=hist_data)+geom_histogram(mapping=aes(ride_length/60, fill=rideable_type))+
+  facet_wrap(~member_casual)+labs(title="Distribution of Ride Length in Minutes",
+                                  x="Ride Length, Minutes", y="Count of Rides")
+```
+
+## Summary and Recommendations
+Cyclistic has a robust network of bike sharing docks and a good customer base. Based on the data available, I make the following recommendations to help convert casual users to annual members:
+*Highlight customers who use the service to commute to work, demonstrating that it is a viable and cost-effective strategy for commuting
+*Advertise the break-even point where casual customers would save money by becoming annual members (i.e. if you ride more than __ minutes per month, you could save with an annual membership)
+*Given the distribution of ride duration, advertise how far the average rider could get in the city from a location in 20min using Cyclystic bikes and highlight the expansive dock network
+*Ensure that sufficient bikes are on hand during peak commute times to ensure Cyclystic commuting is feasible
+
